@@ -2,6 +2,8 @@
 
 ## How to Set Up and Access Your Site
 
+## Click the green **code** button, codespace, then hit the + icon
+
 ### 1. Make the Setup Script Executable
 
 Before running the setup script, give it permission to execute:
