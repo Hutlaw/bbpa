@@ -64,7 +64,9 @@ This shows the process ID (PID) using port 3000.
 what it may look like:
 
 @User ➜ /workspaces/codespaces-blank $ sudo lsof -i :3000
+
 COMMAND  PID USER        FD   TYPE  DEVICE SIZE/OFF NODE NAME
+
 node    1234 codespace   28u  IPv4  54321  0t0      TCP *:3000
 
 ### 2. Kill the Process
