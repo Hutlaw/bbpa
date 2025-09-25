@@ -1,0 +1,203 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Remote Browser — Full Stretch</title>
+<style>
+html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;background:#111}
+#topbar{height:44px;display:flex;align-items:center;padding:6px 10px;background:#0f1720;color:#fff;gap:8px;box-sizing:border-box}
+#address{flex:1;height:32px;padding:6px;border-radius:6px;border:0}
+#controls button{background:#0b84ff;border:0;padding:6px 10px;color:#fff;border-radius:6px;cursor:pointer;height:32px}
+#container{height:calc(100% - 44px);display:flex;flex-direction:column}
+#viewport{flex:1;display:flex;align-items:stretch;justify-content:stretch;background:#000}
+canvas{width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+.info{color:#cbd5e1;font-size:13px;margin-left:8px}
+#audiostatus{color:#9cf;margin-left:8px}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <input id="address" type="text" placeholder="https://example.com" />
+  <button id="go">Go</button>
+  <div class="info" id="status">connecting...</div>
+  <div id="audiostatus">audio: enabled</div>
+</div>
+<div id="container">
+  <div id="viewport">
+    <canvas id="screen" width="1280" height="800"></canvas>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('screen')
+const ctx = canvas.getContext('2d')
+ctx.imageSmoothingEnabled = true
+const addressEl = document.getElementById('address')
+const goBtn = document.getElementById('go')
+const statusEl = document.getElementById('status')
+const audioStatus = document.getElementById('audiostatus')
+let ws
+let audioWs
+let latestMouse = null
+let mouseDirty = false
+let sendQueue = []
+let frameBusy = false
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws')
+  ws.binaryType = 'arraybuffer'
+  ws.addEventListener('open', () => {
+    statusEl.textContent = 'connected'
+    while (sendQueue.length) ws.send(sendQueue.shift())
+  })
+  ws.addEventListener('message', handleMessage)
+  ws.addEventListener('close', () => {
+    statusEl.textContent = 'disconnected — reconnecting...'
+    setTimeout(connect, 1000)
+  })
+  ws.addEventListener('error', () => { statusEl.textContent = 'ws error' })
+}
+connect()
+function connectAudio() {
+  if (audioWs && audioWs.readyState === WebSocket.OPEN) return
+  audioWs = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/audio')
+  audioWs.binaryType = 'arraybuffer'
+  audioWs.addEventListener('open', () => { audioStatus.textContent = 'audio: connected' })
+  audioWs.addEventListener('message', (ev) => {
+    try {
+      const arr = new Int16Array(ev.data)
+      const audioCtx = window.__audioCtx || (window.__audioCtx = new (window.AudioContext || window.webkitAudioContext)())
+      const buf = audioCtx.createBuffer(1, arr.length, 48000)
+      const ch = buf.getChannelData(0)
+      for (let i = 0; i < arr.length; i++) ch[i] = arr[i] / 32768
+      const s = audioCtx.createBufferSource()
+      s.buffer = buf
+      s.connect(audioCtx.destination)
+      s.start(0)
+    } catch (e) { console.warn(e) }
+  })
+  audioWs.addEventListener('close', () => { audioStatus.textContent = 'audio: disconnected' })
+  audioWs.addEventListener('error', () => { audioStatus.textContent = 'audio: error' })
+}
+connectAudio()
+async function handleMessage(ev) {
+  try {
+    if (typeof ev.data === 'string' || ev.data instanceof String) {
+      const data = JSON.parse(ev.data)
+      if (data.type === 'init') {
+        canvas.width = data.width || canvas.width
+        canvas.height = data.height || canvas.height
+        fitCanvas()
+      } else if (data.type === 'navigated') {
+        statusEl.textContent = 'navigated: ' + data.url
+        setTimeout(() => statusEl.textContent = 'connected', 2000)
+      } else if (data.type === 'resizeAck') {
+        canvas.width = data.width; canvas.height = data.height; fitCanvas()
+      } else if (data.type === 'warning') {
+        alert(data.message)
+      } else if (data.type === 'error') {
+        console.error(data.message)
+      }
+    } else {
+      if (frameBusy) return
+      frameBusy = true
+      try {
+        const arr = ev.data
+        const blob = new Blob([arr], { type: 'image/jpeg' })
+        const bitmap = await createImageBitmap(blob)
+        ctx.clearRect(0,0,canvas.width,canvas.height)
+        ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+        bitmap.close()
+      } catch (e) {
+        console.warn('frame render err', e)
+      } finally {
+        frameBusy = false
+      }
+    }
+  } catch (err) { console.warn(err); frameBusy = false }
+}
+function send(msg) {
+  const txt = JSON.stringify(msg)
+  if (!ws || ws.readyState !== WebSocket.OPEN) sendQueue.push(txt)
+  else ws.send(txt)
+}
+function fitCanvas() {
+  const topBarH = document.getElementById('topbar').clientHeight
+  const cw = window.innerWidth
+  const ch = window.innerHeight - topBarH
+  canvas.style.width = cw + 'px'
+  canvas.style.height = ch + 'px'
+}
+window.addEventListener('resize', fitCanvas)
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect()
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width)
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height)
+  latestMouse = { x: Math.max(0, Math.min(canvas.width - 1, Math.round(x))), y: Math.max(0, Math.min(canvas.height - 1, Math.round(y))) }
+  mouseDirty = true
+  if (!window.__mouseSenderScheduled) {
+    window.__mouseSenderScheduled = true
+    requestAnimationFrame(function frame() {
+      if (!mouseDirty) { window.__mouseSenderScheduled = false; return }
+      mouseDirty = false
+      send({ type: 'mouse', action: 'move', x: latestMouse.x, y: latestMouse.y })
+      window.__mouseSenderScheduled = false
+    })
+  }
+})
+canvas.addEventListener('mousedown', (e) => {
+  const rect = canvas.getBoundingClientRect()
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width)
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height)
+  const px = Math.max(0, Math.min(canvas.width - 1, Math.round(x)))
+  const py = Math.max(0, Math.min(canvas.height - 1, Math.round(y)))
+  send({ type: 'mouse', action: 'down', x: px, y: py, button: 'left' })
+})
+canvas.addEventListener('mouseup', (e) => {
+  const rect = canvas.getBoundingClientRect()
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width)
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height)
+  const px = Math.max(0, Math.min(canvas.width - 1, Math.round(x)))
+  const py = Math.max(0, Math.min(canvas.height - 1, Math.round(y)))
+  send({ type: 'mouse', action: 'up', x: px, y: py, button: 'left' })
+  send({ type: 'mouse', action: 'click', x: px, y: py, button: 'left', clickCount: 1 })
+})
+canvas.addEventListener('dblclick', (e) => {
+  const rect = canvas.getBoundingClientRect()
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width)
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height)
+  const px = Math.max(0, Math.min(canvas.width - 1, Math.round(x)))
+  const py = Math.max(0, Math.min(canvas.height - 1, Math.round(y)))
+  send({ type: 'mouse', action: 'click', x: px, y: py, button: 'left', clickCount: 2 })
+})
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault()
+  const deltaX = Math.round(e.deltaX)
+  const deltaY = Math.round(e.deltaY)
+  send({ type: 'scroll', deltaX, deltaY })
+}, { passive: false })
+let lastKeyDown = {}
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) { e.preventDefault(); return }
+  if (e.repeat) return
+  const isPrintable = e.key.length === 1
+  if (isPrintable) send({ type: 'keyboard', action: 'press', key: e.key })
+  else { lastKeyDown[e.key] = true; send({ type: 'keyboard', action: 'down', key: e.key }) }
+})
+window.addEventListener('keyup', (e) => {
+  if (e.key.length === 1) return
+  if (lastKeyDown[e.key]) { delete lastKeyDown[e.key]; send({ type: 'keyboard', action: 'up', key: e.key }) }
+})
+goBtn.addEventListener('click', () => {
+  const url = addressEl.value.trim()
+  if (!url) return
+  const u = (url.startsWith('http://') || url.startsWith('https://')) ? url : ('https://' + url)
+  send({ type: 'navigate', url: u })
+})
+addressEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') goBtn.click()
+})
+fitCanvas()
+setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' })) }, 10000)
+</script>
+</body>
+</html>
