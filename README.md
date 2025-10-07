@@ -115,6 +115,7 @@ Helpful tips and troubleshooting
 - If `npm start` fails, look at the error message in the terminal. Usually it tells you which dependency or file is missing.
 - Make sure Node.js is installed if running locally: `node -v` and `npm -v` should print versions.
 - If a command returns "permission denied", try `chmod +x <script>` or run with `./<script>` from the project root.
+- Sometimes just running `npm install` can fix some errors. 
 
 Where to get help
 - If you made this project from a course or a friend, ask them first.
