@@ -120,6 +120,7 @@ Helpful tips and troubleshooting
 Where to get help
 - If you made this project from a course or a friend, ask them first.
 - For Git/GitHub questions, see: https://docs.github.com/en/get-started/quickstart
+- Message me on Discord `SmartName72`
 
 — small safety reminder
 - This repo may store data on disk (saved locally on repo). Do not make the repository public if it includes any private or sensitive data.
