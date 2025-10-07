@@ -124,3 +124,10 @@ Where to get help
 
 — small safety reminder
 - This repo may store data on disk (saved locally on repo). Do not make the repository public if it includes any private or sensitive data.
+
+
+
+
+
+# Using the app
+~~~~~~~~~~~~~~~~~~~~~~~~~
