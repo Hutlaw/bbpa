@@ -61,7 +61,6 @@ npm start
 
 ### 6. Preview the site:
 - In the Codespaces environment, open the "Ports" panel (bottom or left) and find port 3000. Click "Open in Browser" or "Preview".
-- Or open the URL shown in the terminal (usually http://localhost:3000) in the preview browser.
 
 ## Option B — Run locally on your computer
 1. Clone your fork (or the original repo) to your machine. If you forked the repo, click the green "Code" button on GitHub and copy the clone URL, then run:
